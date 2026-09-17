@@ -71,13 +71,11 @@ async def get_token(req: TokenRequest):
             api.AccessToken(livekit_key, livekit_secret)
             .with_identity(req.username)
             .with_name(req.username)
-            .with_room(req.room)
             .with_grants(api.VideoGrants(
+                room=req.room,
                 room_join=True,
-                room_admin=False,
-                room_publish=True,
-                room_subscribe=True,
-                room_record=False,
+                can_publish=True,
+                can_subscribe=True,
                 can_publish_data=True,
             ))
             .with_ttl(timedelta(hours=4))
