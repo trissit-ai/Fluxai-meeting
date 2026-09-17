@@ -2,12 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   useLocalParticipant,
   useRemoteParticipants,
-  useTracks,
-  VideoTrack,
   ControlBar,
-  ConnectionState,
 } from '@livekit/components-react'
-import { Track } from 'livekit-client'
 import { API_BASE, DEEPGRAM_KEY, DEEPL_KEY, ELEVENLABS_KEY, TARGET_LANG } from '../config'
 import TranscriptPanel from './TranscriptPanel'
 import './MeetingRoom.css'
@@ -38,21 +34,25 @@ class AIProcessor {
     }
 
     this.deepgramWs.onmessage = async (event) => {
-      const data = JSON.parse(event.data)
-      const transcript = data.channel?.alternatives?.[0]?.transcript?.trim()
-      const isFinal = data.is_final
+      try {
+        const data = JSON.parse(event.data)
+        const transcript = data.channel?.alternatives?.[0]?.transcript?.trim()
+        const isFinal = data.is_final
 
-      if (!transcript) return
+        if (!transcript) return
 
-      this.transcriptCallback?.({
-        text: transcript,
-        isFinal,
-        speaker: data.channel?.alternatives?.[0]?.words?.[0]?.speaker ?? null,
-      })
+        this.transcriptCallback?.({
+          text: transcript,
+          isFinal,
+          speaker: data.channel?.alternatives?.[0]?.words?.[0]?.speaker ?? null,
+        })
 
-      // 仅在完整句子时翻译
-      if (isFinal && deeplKey) {
-        this.translate(transcript, deeplKey)
+        // 仅在完整句子时翻译
+        if (isFinal && deeplKey) {
+          this.translate(transcript, deeplKey)
+        }
+      } catch (err) {
+        console.error('[Deepgram] parse error', err)
       }
     }
 
@@ -74,7 +74,10 @@ class AIProcessor {
         }),
       })
 
-      if (!res.ok) return
+      if (!res.ok) {
+        console.warn('[DeepL] non-OK response', res.status)
+        return
+      }
       const data = await res.json()
       const translated = data.translations?.[0]?.text
 
@@ -97,13 +100,16 @@ class AIProcessor {
   }
 
   stop() {
-    this.deepgramWs?.close()
+    if (this.deepgramWs && this.deepgramWs.readyState !== WebSocket.CLOSED) {
+      this.deepgramWs.close()
+    }
     this.deepgramWs = null
   }
 }
 
 export default function MeetingRoom({ roomName, userName, targetLang, targetLangName, onLeave }) {
-  const { localParticipant } = useLocalParticipant()
+  // 这些 hook 必须在 LiveKitRoom 子树内使用
+  const localParticipant = useLocalParticipant()?.localParticipant
   const remoteParticipants = useRemoteParticipants()
 
   const [transcripts, setTranscripts] = useState([])
@@ -114,48 +120,11 @@ export default function MeetingRoom({ roomName, userName, targetLang, targetLang
   const [audioError, setAudioError] = useState('')
   const [micLevel, setMicLevel] = useState(0)
 
-  const mediaRecorderRef = useRef(null)
   const aiProcessorRef = useRef(null)
   const audioContextRef = useRef(null)
   const analyserRef = useRef(null)
   const processorRef = useRef(null)
   const micStreamRef = useRef(null)
-
-  // 启动 AI 音频处理
-  const startAI = useCallback(async () => {
-    if (!DEEPGRAM_KEY || !DEEPL_KEY) {
-      console.warn('Missing API keys, AI disabled')
-      return
-    }
-
-    const ai = new AIProcessor()
-    aiProcessorRef.current = ai
-
-    try {
-      await ai.start({
-        deepgramKey: DEEPGRAM_KEY,
-        deeplKey: DEEPL_KEY,
-        elevenlabsKey: ELEVENLABS_KEY,
-        onTranscript: (t) => {
-          if (t.isFinal) {
-            setTranscripts(prev => [
-              ...prev.slice(-50),
-              { ...t, id: Date.now() + Math.random(), time: new Date() }
-            ])
-          }
-        },
-        onTranslation: (t) => {
-          setTranslations(prev => [
-            ...prev.slice(-50),
-            { ...t, id: Date.now() + Math.random(), time: new Date() }
-          ])
-        },
-      })
-      setIsProcessing(true)
-    } catch (err) {
-      console.error('[AI] Start failed', err)
-    }
-  }, [])
 
   // 采集本地麦克风音频并送入 AI 处理
   const setupAudioCapture = useCallback(async () => {
@@ -166,7 +135,7 @@ export default function MeetingRoom({ roomName, userName, targetLang, targetLang
         autoGainControl: true,
         channelCount: 1,
         sampleRate: 16000,
-      }
+      },
     })
 
     micStreamRef.current = stream
@@ -191,7 +160,7 @@ export default function MeetingRoom({ roomName, userName, targetLang, targetLang
     // 不要连到 ctx.destination，避免回声；手机会回放
     // processor.connect(ctx.destination)
 
-    // 每 250ms 发送一块音频
+    // 每 ~250ms 发送一块音频
     let buffer = []
     processor.onaudioprocess = (e) => {
       const inputData = e.inputBuffer.getChannelData(0)
@@ -227,7 +196,6 @@ export default function MeetingRoom({ roomName, userName, targetLang, targetLang
   const startTranslation = useCallback(async () => {
     setAudioError('')
     try {
-      // 先检查并请求麦克风权限（部分手机需要二次确认）
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error('当前浏览器不支持麦克风')
       }
@@ -241,16 +209,16 @@ export default function MeetingRoom({ roomName, userName, targetLang, targetLang
         elevenlabsKey: ELEVENLABS_KEY,
         onTranscript: (t) => {
           if (t.isFinal) {
-            setTranscripts(prev => [
+            setTranscripts((prev) => [
               ...prev.slice(-50),
-              { ...t, id: Date.now() + Math.random(), time: new Date() }
+              { ...t, id: Date.now() + Math.random(), time: new Date() },
             ])
           }
         },
         onTranslation: (t) => {
-          setTranslations(prev => [
+          setTranslations((prev) => [
             ...prev.slice(-50),
-            { ...t, id: Date.now() + Math.random(), time: new Date() }
+            { ...t, id: Date.now() + Math.random(), time: new Date() },
           ])
         },
       })
@@ -262,13 +230,15 @@ export default function MeetingRoom({ roomName, userName, targetLang, targetLang
       console.error('[Translation] Start failed:', err)
       setAudioError(err?.message || String(err))
     }
-  }, [])
+  }, [setupAudioCapture])
 
   // 麦克风音量采样（用于判断是否真的拿到音频）
   useEffect(() => {
-    if (!analyserRef.current || !audioStarted) return
+    if (!audioStarted) return
     const analyser = analyserRef.current
-    const tick = () => {
+    if (!analyser) return
+
+    let raf = requestAnimationFrame(function tick() {
       const buf = new Uint8Array(analyser.fftSize)
       analyser.getByteTimeDomainData(buf)
       let sum = 0
@@ -278,8 +248,7 @@ export default function MeetingRoom({ roomName, userName, targetLang, targetLang
       }
       setMicLevel(Math.sqrt(sum / buf.length))
       raf = requestAnimationFrame(tick)
-    }
-    let raf = requestAnimationFrame(tick)
+    })
     return () => cancelAnimationFrame(raf)
   }, [audioStarted])
 
@@ -290,7 +259,20 @@ export default function MeetingRoom({ roomName, userName, targetLang, targetLang
     }
   }, [localParticipant])
 
-  const allParticipants = [localParticipant, ...remoteParticipants].filter(Boolean)
+  // 卸载时清理
+  useEffect(() => {
+    return () => {
+      aiProcessorRef.current?.stop()
+      micStreamRef.current?.getTracks().forEach((t) => t.stop())
+      processorRef.current?.disconnect()
+      analyserRef.current?.disconnect()
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        audioContextRef.current.close().catch(() => {})
+      }
+    }
+  }, [])
+
+  const allParticipants = [localParticipant, ...(remoteParticipants ?? [])].filter(Boolean)
 
   return (
     <div className="meeting-room">
@@ -301,7 +283,7 @@ export default function MeetingRoom({ roomName, userName, targetLang, targetLang
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
             </svg>
-            {roomName}
+            {roomName || '房间'}
           </div>
           <div className={`status-dot ${connectionStatus}`} />
         </div>
@@ -340,9 +322,32 @@ export default function MeetingRoom({ roomName, userName, targetLang, targetLang
 
       {/* 主内容区 */}
       <div className="meeting-body">
-        {/* 视频网格 */}
+        {/* 视频网格（demo 阶段 video={false}，先跑通音频流 + 字幕） */}
         <div className="video-section">
-          <VideoGrid participants={allParticipants} localId={localParticipant?.identity} />
+          <div className="video-placeholder">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+              <circle cx="9" cy="7" r="4"/>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>
+            <p className="vp-title">音频会议模式</p>
+            <p className="vp-subtitle">
+              {allParticipants.length === 0
+                ? '等待连接...'
+                : `${allParticipants.length} 人在线`}
+            </p>
+            {allParticipants.length > 0 && (
+              <ul className="vp-list">
+                {allParticipants.map((p) => (
+                  <li key={p.identity}>
+                    {p.name || p.identity}
+                    {p.identity === userName ? '（你）' : ''}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
 
         {/* 字幕区 */}
@@ -353,98 +358,10 @@ export default function MeetingRoom({ roomName, userName, targetLang, targetLang
 
       {/* 控制栏 */}
       <div className="meeting-controls">
-        <ControlBar variation="optimized" />
+        <ControlBar variation="optimized" controls={{ camera: false, screenShare: false, chat: false }} />
       </div>
     </div>
   )
-}
-
-// 视频网格
-function VideoGrid({ participants, localId }) {
-  const count = participants.length
-  const gridClass = count === 1 ? 'grid-1' : count === 2 ? 'grid-2' : count <= 4 ? 'grid-4' : 'grid-6'
-
-  return (
-    <div className={`video-grid ${gridClass}`}>
-      {participants.map((p) => {
-        const isLocal = p.identity === localId
-        return (
-          <ParticipantTile key={p.identity} participant={p} isLocal={isLocal} />
-        )
-      })}
-      {participants.length === 0 && (
-        <div className="waiting-msg">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-            <circle cx="9" cy="7" r="4"/>
-            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-          </svg>
-          <p>等待其他人加入...</p>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// 单个参会者窗口
-function ParticipantTile({ participant, isLocal }) {
-  // 远程参与者：用 useTracks 取订阅的轨道
-  const tracks = useTracks([
-    Track.Source.Camera,
-    Track.Source.Microphone,
-  ]).filter(t => t.participant.identity === participant.identity)
-
-  const camTrack = tracks.find(t => t.source === Track.Source.Camera)
-  const micTrack = tracks.find(t => t.source === Track.Source.Microphone)
-  const isMuted = micTrack ? !micTrack.isMuted : false
-
-  const identity = participant.identity || 'Unknown'
-  const displayName = participant.name || identity
-
-  // 关键：本地参与者用 source={Track.Source.Camera}，远程用 trackRef
-  const videoEl = isLocal
-    ? <VideoTrack source={Track.Source.Camera} className="video-el" />
-    : camTrack
-      ? <VideoTrack trackRef={camTrack} className="video-el" />
-      : null
-
-  return (
-    <div className={`participant-tile ${isLocal ? 'local' : ''}`}>
-      {videoEl || (
-        <div className="video-off">
-          <div className="avatar">
-            {displayName.charAt(0).toUpperCase()}
-          </div>
-        </div>
-      )}
-
-      <div className="tile-info">
-        <span className="tile-name">
-          {isLocal && '(你) '}{displayName}
-        </span>
-        {isMuted && (
-          <svg className="mic-off" width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M16.5 12A4.5 4.5 0 1 1 8 12a4.5 4.5 0 0 1 8.5 0zM3 9.5V12h3l4 4V5.5L6.5 9.5H3z"/>
-            <line x1="2" y1="2" x2="22" y2="22" stroke="var(--danger)" strokeWidth="2"/>
-          </svg>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function ParticipantVideoTrack({ trackRef }) {
-  const ref = useRef(null)
-
-  useEffect(() => {
-    if (ref.current && trackRef?.track) {
-      trackRef.track.attach(ref.current)
-      return () => trackRef.track.detach(ref.current)
-    }
-  }, [trackRef])
-
-  return <video ref={ref} autoPlay playsInline muted={false} className="video-el" />
 }
 
 // WAV 编码器（给 Deepgram）

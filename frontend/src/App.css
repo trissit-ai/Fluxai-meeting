@@ -119,3 +119,14 @@
   height: 100vh !important;
   background: var(--bg-primary) !important;
 }
+
+/* === LiveKit 主题覆盖：阻止默认黑底全屏遮罩 === */
+.lk-room,
+[class*="lk-"] {
+  background: var(--bg-primary) !important;
+}
+
+html, body, #root {
+  background: var(--bg-primary);
+  min-height: 100vh;
+}
