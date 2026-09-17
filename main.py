@@ -5,6 +5,7 @@ AI Meeting - Backend Server
 
 import os
 import uuid
+import httpx
 from datetime import datetime, timedelta, timezone
 
 from dotenv import load_dotenv
@@ -34,6 +35,46 @@ class TokenRequest(BaseModel):
     livekit_url: str | None = None
     livekit_api_key: str | None = None
     livekit_api_secret: str | None = None
+
+
+class TranslateRequest(BaseModel):
+    text: str
+    target_lang: str = "ZH"
+    deepl_key: str | None = None
+
+
+# ============ Translate Proxy (DeepL) ============
+# 浏览器直连 api-free.deepl.com 会被 CORS 拦截，改为后端代理
+@app.post("/api/translate")
+async def translate(req: TranslateRequest):
+    """
+    代理 DeepL 翻译，绕开浏览器 CORS 限制
+    """
+    deepl_key = req.deepl_key or os.getenv("DEEPL_KEY", "")
+    if not deepl_key:
+        raise HTTPException(status_code=400, detail="DeepL key not configured")
+    if not req.text.strip():
+        return {"translated": ""}
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                "https://api-free.deepl.com/v2/translate",
+                headers={
+                    "Authorization": f"DeepL-Auth-Key {deepl_key}",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+                data={"text": req.text, "target_lang": req.target_lang},
+            )
+            if resp.status_code != 200:
+                raise HTTPException(status_code=resp.status_code, detail=f"DeepL error: {resp.text[:200]}")
+            data = resp.json()
+            translated = data.get("translations", [{}])[0].get("text", "")
+            return {"translated": translated}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Translate failed: {str(e)}")
 
 
 class TokenResponse(BaseModel):
@@ -108,6 +149,7 @@ async def root():
         "version": "1.0.0",
         "endpoints": {
             "POST /api/token": "Get LiveKit room token",
+            "POST /api/translate": "DeepL translate proxy (CORS-safe)",
             "GET /health": "Health check",
         }
     }
