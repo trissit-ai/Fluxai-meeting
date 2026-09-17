@@ -1,0 +1,28 @@
+{
+  "name": "meeting-ai-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "homepage": "https://trissit-ai.github.io/Fluxai-meeting",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "deploy": "vite build && gh-pages -d dist"
+  },
+  "dependencies": {
+    "@livekit/components-react": "^2.8.0",
+    "@livekit/components-styles": "^1.1.0",
+    "axios": "^1.7.9",
+    "livekit-client": "^2.10.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "gh-pages": "^6.3.0",
+    "vite": "^6.0.0"
+  }
+}
