@@ -5,24 +5,24 @@
 }
 
 :root {
-  --bg-primary: #0a0a14;
-  --bg-secondary: #12121f;
-  --bg-card: #1a1a2e;
-  --bg-card-hover: #22223a;
-  --accent: #6c5ce7;
-  --accent-light: #a29bfe;
-  --accent-glow: rgba(108, 92, 231, 0.3);
-  --text-primary: #f0f0f5;
-  --text-secondary: #9999b0;
-  --text-muted: #666680;
+  --bg-primary: #1a1a1a;
+  --bg-secondary: #232323;
+  --bg-card: #2a2a2a;
+  --bg-card-hover: #333333;
+  --accent: #ff7a1a;
+  --accent-light: #ffb347;
+  --accent-glow: rgba(255, 122, 26, 0.35);
+  --text-primary: #f5f5f5;
+  --text-secondary: #b8b8b8;
+  --text-muted: #7a7a7a;
   --success: #00d9a6;
-  --danger: #ff4757;
+  --danger: #ff5252;
   --warning: #ffa502;
   --border: rgba(255, 255, 255, 0.08);
-  --border-hover: rgba(255, 255, 255, 0.15);
+  --border-hover: rgba(255, 255, 255, 0.18);
   --radius: 12px;
   --radius-sm: 8px;
-  --shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  --shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
   --shadow-accent: 0 4px 20px var(--accent-glow);
 }
 

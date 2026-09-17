@@ -21,8 +21,8 @@
 .lang-tag {
   margin-left: auto;
   padding: 2px 8px;
-  background: rgba(108, 92, 231, 0.15);
-  border: 1px solid rgba(108, 92, 231, 0.25);
+  background: rgba(255, 122, 26, 0.15);
+  border: 1px solid rgba(255, 122, 26, 0.25);
   color: var(--accent-light);
   border-radius: 10px;
   font-size: 11px;
@@ -111,7 +111,7 @@
   color: var(--text-primary);
   line-height: 1.5;
   padding: 6px 10px;
-  background: rgba(108, 92, 231, 0.08);
+  background: rgba(255, 122, 26, 0.08);
   border-left: 2px solid var(--accent);
   border-radius: 0 6px 6px 0;
 }
@@ -133,8 +133,8 @@
 }
 
 .lang-label.zh {
-  background: rgba(108, 92, 231, 0.15);
-  border-color: rgba(108, 92, 231, 0.3);
+  background: rgba(255, 122, 26, 0.15);
+  border-color: rgba(255, 122, 26, 0.3);
   color: var(--accent-light);
 }
 

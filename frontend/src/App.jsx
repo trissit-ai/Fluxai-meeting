@@ -66,6 +66,7 @@ export default function App() {
         connect={true}
         audio={true}
         video={true}
+        onError={(err) => console.error('[LiveKit] Error:', err)}
         onDisconnected={handleLeave}
         className="lk-room"
       >
@@ -93,8 +94,8 @@ export default function App() {
               <circle cx="18" cy="24" r="2" fill="#fff"/>
               <defs>
                 <linearGradient id="grad" x1="0" y1="0" x2="36" y2="36">
-                  <stop offset="0%" stopColor="#6c5ce7"/>
-                  <stop offset="100%" stopColor="#a29bfe"/>
+                  <stop offset="0%" stopColor="#ff7a1a"/>
+                  <stop offset="100%" stopColor="#ffb347"/>
                 </linearGradient>
               </defs>
             </svg>

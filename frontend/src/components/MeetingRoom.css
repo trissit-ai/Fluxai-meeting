@@ -11,7 +11,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 12px 20px;
-  background: rgba(18, 18, 31, 0.95);
+  background: rgba(35, 35, 35, 0.95);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
   position: relative;
@@ -247,9 +247,49 @@
 .meeting-controls {
   flex-shrink: 0;
   padding: 12px 20px;
-  background: rgba(18, 18, 31, 0.95);
+  background: rgba(35, 35, 35, 0.95);
   backdrop-filter: blur(12px);
   border-top: 1px solid var(--border);
   display: flex;
   justify-content: center;
+}
+
+.start-translation-btn {
+  background: linear-gradient(135deg, var(--accent), var(--accent-light));
+  color: #fff;
+  border: none;
+  padding: 6px 14px;
+  border-radius: 16px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  animation: pulse-soft 1.6s infinite;
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.mic-level {
+  width: 60px;
+  height: 6px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.mic-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #4ade80, #22d3ee);
+  transition: width 0.05s;
+  width: 0;
+}
+
+.audio-error {
+  color: #f87171;
+  font-size: 11px;
+  padding: 2px 8px;
+  background: rgba(248,113,113,0.1);
+  border-radius: 8px;
 }

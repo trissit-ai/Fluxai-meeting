@@ -3,10 +3,11 @@ import {
   useLocalParticipant,
   useRemoteParticipants,
   useTracks,
-  Track,
+  VideoTrack,
   ControlBar,
   ConnectionState,
 } from '@livekit/components-react'
+import { Track } from 'livekit-client'
 import { API_BASE, DEEPGRAM_KEY, DEEPL_KEY, ELEVENLABS_KEY, TARGET_LANG } from '../config'
 import TranscriptPanel from './TranscriptPanel'
 import './MeetingRoom.css'
@@ -109,6 +110,9 @@ export default function MeetingRoom({ roomName, userName, targetLang, targetLang
   const [translations, setTranslations] = useState([])
   const [isProcessing, setIsProcessing] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState('connecting')
+  const [audioStarted, setAudioStarted] = useState(false)
+  const [audioError, setAudioError] = useState('')
+  const [micLevel, setMicLevel] = useState(0)
 
   const mediaRecorderRef = useRef(null)
   const aiProcessorRef = useRef(null)
@@ -155,79 +159,129 @@ export default function MeetingRoom({ roomName, userName, targetLang, targetLang
 
   // 采集本地麦克风音频并送入 AI 处理
   const setupAudioCapture = useCallback(async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        channelCount: 1,
+        sampleRate: 16000,
+      }
+    })
+
+    micStreamRef.current = stream
+
+    // 使用 AudioContext 采集原始 PCM（手机浏览器必须在用户交互后才能创建/恢复）
+    const Ctx = window.AudioContext || window.webkitAudioContext
+    const ctx = new Ctx({ sampleRate: 16000 })
+    if (ctx.state === 'suspended') {
+      await ctx.resume()
+    }
+    audioContextRef.current = ctx
+
+    const source = ctx.createMediaStreamSource(stream)
+    const analyser = ctx.createAnalyser()
+    analyser.fftSize = 512
+    analyserRef.current = analyser
+    const processor = ctx.createScriptProcessor(4096, 1, 1)
+    processorRef.current = processor
+
+    source.connect(analyser)
+    analyser.connect(processor)
+    // 不要连到 ctx.destination，避免回声；手机会回放
+    // processor.connect(ctx.destination)
+
+    // 每 250ms 发送一块音频
+    let buffer = []
+    processor.onaudioprocess = (e) => {
+      const inputData = e.inputBuffer.getChannelData(0)
+      buffer.push(new Float32Array(inputData))
+
+      if (buffer.length >= 6) {
+        // 合并 buffer
+        const totalLen = buffer.reduce((sum, b) => sum + b.length, 0)
+        const merged = new Float32Array(totalLen)
+        let offset = 0
+        for (const b of buffer) {
+          merged.set(b, offset)
+          offset += b.length
+        }
+        buffer = []
+
+        // 转为 16-bit PCM
+        const pcm16 = new Int16Array(merged.length)
+        for (let i = 0; i < merged.length; i++) {
+          pcm16[i] = Math.max(-32768, Math.min(32767, Math.round(merged[i] * 32767)))
+        }
+
+        // 转为 WAV 格式（Deepgram 需要）
+        const wav = encodeWAV(pcm16, 16000)
+        aiProcessorRef.current?.sendAudio(wav)
+      }
+    }
+
+    console.log('[Audio] Mic capture started, sampleRate:', ctx.sampleRate)
+  }, [])
+
+  // 启动音频采集 + AI 翻译（必须由用户点击触发，避免手机浏览器拦截）
+  const startTranslation = useCallback(async () => {
+    setAudioError('')
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          channelCount: 1,
-          sampleRate: 16000,
-        }
-      })
-
-      micStreamRef.current = stream
-
-      // 使用 AudioContext 采集原始 PCM
-      const ctx = new AudioContext({ sampleRate: 16000 })
-      audioContextRef.current = ctx
-
-      const source = ctx.createMediaStreamSource(stream)
-      const processor = ctx.createScriptProcessor(4096, 1, 1)
-      processorRef.current = processor
-
-      source.connect(processor)
-      processor.connect(ctx.destination)
-
-      // 每 250ms 发送一块音频
-      let buffer = []
-      processor.onaudioprocess = (e) => {
-        const inputData = e.inputBuffer.getChannelData(0)
-        buffer.push(new Float32Array(inputData))
-
-        if (buffer.length >= 6) {
-          // 合并 buffer
-          const totalLen = buffer.reduce((sum, b) => sum + b.length, 0)
-          const merged = new Float32Array(totalLen)
-          let offset = 0
-          for (const b of buffer) {
-            merged.set(b, offset)
-            offset += b.length
-          }
-          buffer = []
-
-          // 转为 16-bit PCM
-          const pcm16 = new Int16Array(merged.length)
-          for (let i = 0; i < merged.length; i++) {
-            pcm16[i] = Math.max(-32768, Math.min(32767, Math.round(merged[i] * 32767)))
-          }
-
-          // 转为 WAV 格式（Deepgram 需要）
-          const wav = encodeWAV(pcm16, 16000)
-          aiProcessorRef.current?.sendAudio(wav)
-        }
+      // 先检查并请求麦克风权限（部分手机需要二次确认）
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('当前浏览器不支持麦克风')
       }
 
-      console.log('[Audio] Mic capture started')
+      const ai = aiProcessorRef.current ?? new AIProcessor()
+      aiProcessorRef.current = ai
+
+      await ai.start({
+        deepgramKey: DEEPGRAM_KEY,
+        deeplKey: DEEPL_KEY,
+        elevenlabsKey: ELEVENLABS_KEY,
+        onTranscript: (t) => {
+          if (t.isFinal) {
+            setTranscripts(prev => [
+              ...prev.slice(-50),
+              { ...t, id: Date.now() + Math.random(), time: new Date() }
+            ])
+          }
+        },
+        onTranslation: (t) => {
+          setTranslations(prev => [
+            ...prev.slice(-50),
+            { ...t, id: Date.now() + Math.random(), time: new Date() }
+          ])
+        },
+      })
+
+      await setupAudioCapture()
+      setIsProcessing(true)
+      setAudioStarted(true)
     } catch (err) {
-      console.error('[Audio] Mic access denied or error', err)
+      console.error('[Translation] Start failed:', err)
+      setAudioError(err?.message || String(err))
     }
   }, [])
 
-  // 启动
+  // 麦克风音量采样（用于判断是否真的拿到音频）
   useEffect(() => {
-    startAI()
-    setupAudioCapture()
-
-    return () => {
-      // 清理
-      aiProcessorRef.current?.stop()
-      processorRef.current?.disconnect()
-      audioContextRef.current?.close()
-      micStreamRef.current?.getTracks().forEach(t => t.stop())
-      mediaRecorderRef.current?.stop()
+    if (!analyserRef.current || !audioStarted) return
+    const analyser = analyserRef.current
+    const tick = () => {
+      const buf = new Uint8Array(analyser.fftSize)
+      analyser.getByteTimeDomainData(buf)
+      let sum = 0
+      for (let i = 0; i < buf.length; i++) {
+        const v = (buf[i] - 128) / 128
+        sum += v * v
+      }
+      setMicLevel(Math.sqrt(sum / buf.length))
+      raf = requestAnimationFrame(tick)
     }
-  }, [startAI, setupAudioCapture])
+    let raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [audioStarted])
 
   // 监听连接状态
   useEffect(() => {
@@ -258,6 +312,19 @@ export default function MeetingRoom({ roomName, userName, targetLang, targetLang
             </svg>
             AI 翻译 {isProcessing ? '运行中' : '启动中...'}
           </div>
+          {!audioStarted && (
+            <button className="start-translation-btn" onClick={startTranslation}>
+              🎙️ 点此启用麦克风翻译
+            </button>
+          )}
+          {audioStarted && (
+            <div className="mic-level" title="麦克风音量">
+              <div className="mic-bar" style={{ width: `${Math.min(micLevel * 300, 100)}%` }} />
+            </div>
+          )}
+          {audioError && (
+            <div className="audio-error">⚠ {audioError}</div>
+          )}
         </div>
         <div className="header-right">
           <button className="leave-btn" onClick={onLeave}>
@@ -322,6 +389,7 @@ function VideoGrid({ participants, localId }) {
 
 // 单个参会者窗口
 function ParticipantTile({ participant, isLocal }) {
+  // 远程参与者：用 useTracks 取订阅的轨道
   const tracks = useTracks([
     Track.Source.Camera,
     Track.Source.Microphone,
@@ -334,11 +402,16 @@ function ParticipantTile({ participant, isLocal }) {
   const identity = participant.identity || 'Unknown'
   const displayName = participant.name || identity
 
+  // 关键：本地参与者用 source={Track.Source.Camera}，远程用 trackRef
+  const videoEl = isLocal
+    ? <VideoTrack source={Track.Source.Camera} className="video-el" />
+    : camTrack
+      ? <VideoTrack trackRef={camTrack} className="video-el" />
+      : null
+
   return (
     <div className={`participant-tile ${isLocal ? 'local' : ''}`}>
-      {camTrack ? (
-        <ParticipantVideoTrack trackRef={camTrack} />
-      ) : (
+      {videoEl || (
         <div className="video-off">
           <div className="avatar">
             {displayName.charAt(0).toUpperCase()}
